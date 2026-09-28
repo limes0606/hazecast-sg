@@ -1,0 +1,32 @@
+# data (raw downloads and generated layers are not committed - see data/README.md)
+data/raw/**/*.csv
+data/raw/**/*.zip
+data/raw/**/*.json
+data/bronze/**/*.parquet
+data/silver/**/*.parquet
+data/gold/**/*.parquet
+data/models/*
+!data/models/.gitkeep
+!data/*/.gitkeep
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# mlflow
+mlruns/
+mlartifacts/
+
+# airflow
+dags/__pycache__/
+logs/
+airflow.db
+airflow.cfg
+
+# os / editor
+.DS_Store
+.vscode/
+*.swp
