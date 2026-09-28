@@ -66,6 +66,29 @@ services:
     depends_on:
       - mlflow
 
+  # Same pattern as the Assignment 1 environment: JupyterLab in-browser,
+  # no auth token (convenience for local dev only -- do not expose this
+  # port beyond localhost). Runs the pipeline.Dockerfile image so every
+  # hazecast.* module is importable straight from a notebook cell; the
+  # repo root is mounted read/write so edits and notebook runs persist.
+  # --allow-root: pipeline.Dockerfile never creates a non-root user (its
+  # only job is running batch jobs / the API, where this doesn't matter),
+  # so the container's default user is root -- JupyterLab refuses to start
+  # as root without this flag (confirmed: it built fine but exited 1 on
+  # first real run without it).
+  jupyter:
+    build:
+      context: .
+      dockerfile: docker/pipeline.Dockerfile
+    command: >
+      jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+      --NotebookApp.token='' --NotebookApp.password=''
+      --notebook-dir=/app
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+
 volumes:
   airflow_db:
   mlflow_data:

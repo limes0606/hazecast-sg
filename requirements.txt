@@ -11,3 +11,4 @@ python-dotenv>=1.0
 
 # dev / test only -- not needed by the running pipeline or API
 pytest>=8.0
+jupyterlab>=4.2

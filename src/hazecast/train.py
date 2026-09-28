@@ -21,7 +21,16 @@ is saved to data/models/ and registered in MLflow for the scoring step.
 from __future__ import annotations
 import json
 import logging
+import os
 from pathlib import Path
+
+# MLflow tries to stamp each run with the current git commit/branch/remote
+# via GitPython. pipeline.Dockerfile doesn't install the `git` binary (the
+# api/train/score containers don't need a working repo), so without this,
+# every mlflow.start_run() call prints ~10 lines of "git executable not
+# found" warnings -- harmless, but noisy enough to look like a crash (see
+# README). Must be set before mlflow is imported.
+os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
 
 import mlflow
 import mlflow.xgboost

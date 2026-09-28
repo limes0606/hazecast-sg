@@ -58,6 +58,7 @@ src/hazecast/
 serving/app.py            FastAPI: /forecast, /forecast/{region}, /health, /config
 dags/                     Airflow DAGs (daily pipeline, monthly retrain)
 docker/                   Dockerfile(s)
+notebooks/                pipeline_walkthrough.ipynb -- same 5 steps as "Running it" below, interactive
 tests/                    fast smoke tests on synthetic fixtures (no real data needed)
 data/README.md            how to get the 3 real datasets (not committed -- see below)
 ```
@@ -154,13 +155,30 @@ uvicorn serving.app:app --reload   # then GET localhost:8000/forecast
 pytest tests/ -v
 ```
 
-**4. Run the full stack in Docker:**
+**4. Or run the same 5 steps interactively in JupyterLab** (same pattern as
+Assignment 1 -- Docker + docker-compose + browser, no local Python install
+needed):
+```bash
+docker compose up --build jupyter
+```
+Then open `localhost:8888/lab` (no token -- local dev only, don't expose
+this port beyond localhost) and open `notebooks/pipeline_walkthrough.ipynb`.
+It runs ingest -> bronze -> silver -> gold -> train -> score one cell at a
+time, printing row counts/date ranges/eval tables as it goes, plus an
+optional last cell for the smoke tests. Already executed once end-to-end
+against the real data in this proof of concept, so the committed notebook's
+outputs are real, not placeholders -- rerun it yourself to confirm on your
+own data. (Prefer a local JupyterLab instead of Docker? `pip install -r
+requirements.txt && jupyter lab`, then open the same notebook -- it detects
+either environment automatically.)
+
+**5. Run the full stack in Docker (all services):**
 ```bash
 docker compose up --build
 ```
 MLflow UI: `localhost:5000`. Airflow UI: `localhost:8080` (see the note
 at the top of `docker-compose.yml` about first-run DB init). API:
-`localhost:8000/forecast`.
+`localhost:8000/forecast`. JupyterLab: `localhost:8888/lab`.
 
 ## What's tested vs. not
 
@@ -184,6 +202,20 @@ This section exists so nobody re-discovers the same gap the hard way.
 - `docker-compose.yml` and `docker/pipeline.Dockerfile` -- YAML validated
   with `docker compose config`; `docker` itself is present.
 - The 3 pytest smoke tests in `tests/`.
+- `notebooks/pipeline_walkthrough.ipynb` -- executed end-to-end (via
+  `jupyter nbconvert --execute`) against the real data; every cell's
+  committed output (row counts, eval tables, forecast) is a real result,
+  not a placeholder.
+- The `jupyter` service in `docker-compose.yml` -- unlike the other
+  services (no Docker daemon in the sandbox this was built in), this one
+  was actually run with `docker compose up --build jupyter` on a real
+  machine. The image built cleanly, but the container exited immediately
+  on first run (`Running as root is not recommended. Use --allow-root to
+  bypass.`) -- `pipeline.Dockerfile` never creates a non-root user, so
+  JupyterLab refused to start. Fixed by adding `--allow-root` to the
+  service's command; if you're reading this before re-testing that fix,
+  treat it as unconfirmed and re-run `docker compose up --build jupyter`
+  yourself.
 
 **NOT run/verified in the environment this was built in, because it had
 no outbound network to these hosts -- confirm on a normal machine before

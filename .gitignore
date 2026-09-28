@@ -15,10 +15,13 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
 
 # mlflow
 mlruns/
 mlartifacts/
+mlflow.db
 
 # airflow
 dags/__pycache__/
