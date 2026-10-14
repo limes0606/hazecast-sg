@@ -9,10 +9,20 @@ elevated days in it, at which point "recall on elevated days" is undefined
 for that fold. Leave-one-season-out guarantees every test fold actually
 contains haze to evaluate against.
 
-Three candidates are compared per region, per season:
+Four candidates are compared per region, per season:
   - persistence: tomorrow = today (the baseline every model must beat)
   - linreg: plain linear regression on the same feature set
-  - xgboost: gradient-boosted trees (the model in the proposal)
+  - xgboost: gradient-boosted trees minimizing MAE (the model in the
+    proposal) -- kept as a comparison baseline; see xgboost_q85 below for
+    why this is NOT what's shipped as the production model
+  - xgboost_q85: gradient-boosted trees targeting the 85th percentile
+    (hazecast.config.XGB_QUANTILE_ALPHA) instead of the mean -- THIS is
+    the production model (see train_final_models). Plain MAE regression
+    under-predicts rare elevated days (~2% of all days); a high-quantile
+    objective deliberately biases toward catching them, trading some
+    precision (more false alarms) for much better recall on the days
+    this tool actually exists to flag. See README "Results" for the
+    real evaluated numbers behind this choice.
 
 Results are written to data/models/eval_summary.csv and logged to MLflow.
 A final XGBoost model per region, trained on all available labelled rows,
@@ -42,7 +52,7 @@ from xgboost import XGBRegressor
 
 from hazecast.config import (
     GOLD_DIR, MODELS_DIR, REPO_ROOT, SG_REGIONS,
-    HAZE_SEASONS, PM25_ELEVATED_THRESHOLD,
+    HAZE_SEASONS, PM25_ELEVATED_THRESHOLD, XGB_PARAMS, XGB_QUANTILE_ALPHA,
 )
 
 log = logging.getLogger(__name__)
@@ -127,11 +137,13 @@ def run_season_fold(
     lr = LinearRegression().fit(X_train, y_train)
     results.append({"model": "linreg", **_metrics(y_test, lr.predict(X_test), PM25_ELEVATED_THRESHOLD)})
 
-    xgb = XGBRegressor(
-        n_estimators=300, max_depth=4, learning_rate=0.05,
-        subsample=0.8, colsample_bytree=0.8, random_state=42,
-    ).fit(X_train, y_train)
+    xgb = XGBRegressor(**XGB_PARAMS).fit(X_train, y_train)
     results.append({"model": "xgboost", **_metrics(y_test, xgb.predict(X_test), PM25_ELEVATED_THRESHOLD)})
+
+    xgb_q = XGBRegressor(
+        **XGB_PARAMS, objective="reg:quantileerror", quantile_alpha=XGB_QUANTILE_ALPHA,
+    ).fit(X_train, y_train)
+    results.append({"model": "xgboost_q85", **_metrics(y_test, xgb_q.predict(X_test), PM25_ELEVATED_THRESHOLD)})
 
     for r in results:
         r.update(target=target, season=season_name, n_train=len(train))
@@ -174,6 +186,15 @@ def train_final_models(gold: pd.DataFrame) -> dict[str, Path]:
     """Fit one XGBoost model per region on ALL available labelled rows
     (not just the LOSO folds) and persist + register each in MLflow. This
     is the model the batch scoring job actually loads.
+
+    Uses the quantile objective (hazecast.config.XGB_QUANTILE_ALPHA), not
+    plain MAE regression -- see the module docstring and README "Results"
+    for why: evaluated on real data, this roughly triples elevated-day
+    recall versus the MAE-minimizing variant, which is what actually
+    matters for an early-warning tool. save_model()/load_model() were
+    verified to round-trip a quantile model's predictions exactly (the
+    objective is stored in the saved file), so hazecast.score doesn't need
+    any change to load it correctly.
     """
     feature_cols = _feature_columns(gold)
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -189,8 +210,7 @@ def train_final_models(gold: pd.DataFrame) -> dict[str, Path]:
             log.warning("target=%s: only %d fully-featured rows, skipping final fit", target, len(train))
             continue
         model = XGBRegressor(
-            n_estimators=300, max_depth=4, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.8, random_state=42,
+            **XGB_PARAMS, objective="reg:quantileerror", quantile_alpha=XGB_QUANTILE_ALPHA,
         ).fit(train[feature_cols], train[label_col])
 
         out_path = MODELS_DIR / f"xgb_{target}.json"
@@ -218,7 +238,7 @@ if __name__ == "__main__":
     log.info("Wrote evaluation summary (%d rows) to %s", len(eval_df), summary_path)
 
     pivot = eval_df.pivot_table(index=["target", "season"], columns="model", values="mae")
-    log.info("MAE by target/season (lower is better), persistence vs linreg vs xgboost:\n%s", pivot.round(2))
+    log.info("MAE by target/season (lower is better), all 4 candidates:\n%s", pivot.round(2))
 
     model_paths = train_final_models(gold_df)
     log.info("Saved final models: %s", {k: str(v) for k, v in model_paths.items()})

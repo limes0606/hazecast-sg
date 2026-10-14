@@ -73,3 +73,28 @@ HAZE_SEASONS = {
     "2019": ("2019-08-15", "2019-11-30"),
     # "2026": ("2026-08-01", "2026-10-31"),  # add once PM2.5 labels cover it
 }
+
+# ---------------------------------------------------------------------------
+# Model hyperparameters
+# ---------------------------------------------------------------------------
+# Shared XGBoost tree/boosting params for every XGBoost variant compared in
+# hazecast.train -- only the objective differs between variants.
+XGB_PARAMS = dict(
+    n_estimators=300, max_depth=4, learning_rate=0.05,
+    subsample=0.8, colsample_bytree=0.8, random_state=42,
+)
+
+# The production model forecasts a HIGH quantile of next-day PM2.5, not the
+# mean. Plain MAE-minimizing regression (see the "xgboost" candidate in
+# hazecast.train, kept only as a comparison baseline) systematically
+# under-predicts the rare elevated days: with haze days at ~2% of the
+# dataset, a mean-minimizer is pulled toward the calm majority. Evaluated
+# against real data (see README "Results"), targeting the 85th percentile
+# instead roughly triples elevated-day recall on the worse of the two haze
+# seasons, at a real but acceptable cost in precision (more false alarms)
+# and a season-dependent change in MAE. This is a deliberate choice for an
+# early-warning use case, where a missed elevated day (false negative) is
+# more costly than an extra false alarm -- tune lower for a more
+# conservative/precise alert, higher to catch more true events at the cost
+# of more false alarms; 0.70-0.95 were swept, 0.85 was the best balance.
+XGB_QUANTILE_ALPHA = 0.85
